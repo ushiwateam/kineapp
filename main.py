@@ -26,11 +26,12 @@ from __future__ import annotations
 import os
 import sqlite3
 from contextlib import closing
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta
 from typing import Optional, List, Tuple, Dict, Any
 
 import pandas as pd
 import streamlit as st
+from streamlit_calendar import calendar
 
 # ==========================
 # Config & Styles
@@ -65,6 +66,7 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 DB_PATH = os.getenv("KINE_DB_PATH", "kine.db")
 DATE_FMT_UI = "%d/%m/%Y"  # JJ/MM/AAAA pour l'interface
 DATE_FMT_DB = "%Y-%m-%d"  # ISO côté base
+TIME_FMT = "%H:%M"  # HH:MM pour l'heure
 
 
 def today_iso() -> str:
@@ -88,6 +90,26 @@ def to_ui_date(db_value: str | None) -> Optional[date]:
         return None
     try:
         return datetime.strptime(db_value, DATE_FMT_DB).date()
+    except Exception:
+        return None
+
+
+def to_db_time(ui_value: time | str | None) -> Optional[str]:
+    if ui_value is None:
+        return None
+    if isinstance(ui_value, time):
+        return ui_value.strftime(TIME_FMT)
+    try:
+        return datetime.strptime(ui_value, TIME_FMT).strftime(TIME_FMT)
+    except Exception:
+        return None
+
+
+def to_ui_time(db_value: str | None) -> Optional[time]:
+    if not db_value:
+        return None
+    try:
+        return datetime.strptime(db_value, TIME_FMT).time()
     except Exception:
         return None
 
@@ -140,7 +162,9 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 traitement_id INTEGER NOT NULL,
                 date TEXT NOT NULL,
+                heure TEXT,
                 duree_minutes INTEGER DEFAULT 45,
+                cout REAL DEFAULT 0,
                 effectuee INTEGER DEFAULT 0,
                 payee INTEGER DEFAULT 0,
                 douleur_avant INTEGER,
@@ -154,6 +178,14 @@ def init_db():
         # Ensure new columns exist when migrating older databases
         try:
             cur.execute("ALTER TABLE patients ADD COLUMN cin TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cur.execute("ALTER TABLE seances ADD COLUMN heure TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cur.execute("ALTER TABLE seances ADD COLUMN cout REAL DEFAULT 0")
         except sqlite3.OperationalError:
             pass
         conn.commit()
@@ -253,13 +285,15 @@ def list_seances(
         params.append(date_max)
     if clauses:
         q += " WHERE " + " AND ".join(clauses)
-    q += " ORDER BY date ASC"
+    q += " ORDER BY date ASC, heure ASC"
     rows = run_query(q, tuple(params))
     columns = [
         "id",
         "traitement_id",
         "date",
+        "heure",
         "duree_minutes",
+        "cout",
         "effectuee",
         "payee",
         "douleur_avant",
@@ -318,15 +352,17 @@ def progression_traitement(t_df: pd.DataFrame, s_df: pd.DataFrame) -> pd.DataFra
 # Views
 # ==========================
 
-def view_dashboard():
+def render_dashboard():
     st.subheader("📊 Tableau de bord")
-    # KPIs
+    if st.button("👤 Gérer les patients"):
+        _go_to("patients")
+
     patients_df = list_patients()
     nb_patients = len(patients_df)
     traitements_en_cours = list_traitements(statut="En cours")
 
     today = date.today()
-    start_week = (today - timedelta(days=today.weekday()))  # lundi
+    start_week = today - timedelta(days=today.weekday())
     end_week = start_week + timedelta(days=6)
 
     seances_today = list_seances(date_min=today.strftime(DATE_FMT_DB), date_max=today.strftime(DATE_FMT_DB))
@@ -348,16 +384,33 @@ def view_dashboard():
     if upcoming.empty:
         st.info("Aucune séance planifiée dans les 7 prochains jours.")
     else:
-        # Rejoindre avec traitements & patients pour affichage
         t_df = list_traitements()
         p_df = list_patients()
         merged = upcoming.merge(t_df[["id", "patient_id"]], left_on="traitement_id", right_on="id", suffixes=("", "_t")).merge(
             p_df[["id", "nom", "prenom", "telephone"]], left_on="patient_id", right_on="id", suffixes=("", "_p")
         )
-        merged = merged[["date", "nom", "prenom", "telephone", "traitement_id", "id"]]
+        merged = merged[["date", "heure", "nom", "prenom", "telephone", "traitement_id", "id"]]
         merged = merged.rename(columns={"id": "id_seance"})
-        merged = merged.sort_values("date")
+        merged = merged.sort_values(["date", "heure"])
         st.dataframe(merged, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("### 🗓️ Calendrier des séances")
+    future = list_seances(date_min=today.strftime(DATE_FMT_DB))
+    if future.empty:
+        st.info("Aucune séance planifiée.")
+    else:
+        t_df = list_traitements()
+        p_df = list_patients()
+        merged = future.merge(t_df[["id", "patient_id"]], left_on="traitement_id", right_on="id", suffixes=("", "_t")).merge(
+            p_df[["id", "nom", "prenom"]], left_on="patient_id", right_on="id", suffixes=("", "_p")
+        )
+        events = []
+        for _, r in merged.iterrows():
+            title = f"{r['nom']} {r['prenom']}".strip()
+            start = f"{r['date']} {r['heure'] or '00:00'}"
+            events.append({"title": title, "start": start})
+        calendar(events, options={"initialView": "dayGridMonth"})
 
 
 def view_patients():
@@ -860,6 +913,8 @@ def _go_to(level: str, patient_id: int | None = None, traitement_id: int | None 
 
 def render_patients():
     st.subheader("👤 Patients")
+    if st.button("🏠 Tableau de bord"):
+        _go_to("dashboard")
     search = st.text_input("Recherche (nom, prénom, téléphone)")
     df = list_patients(search)
     st.dataframe(df[["id", "nom", "prenom", "telephone", "email"]], use_container_width=True, hide_index=True)
@@ -1008,18 +1063,32 @@ def render_seances():
         _go_to("traitements", patient_id=pid)
 
     s_df = list_seances(traitement_id=tid)
-    st.dataframe(s_df[["id", "date", "duree_minutes", "effectuee", "payee", "douleur_avant", "douleur_apres"]], use_container_width=True, hide_index=True)
+    st.dataframe(
+        s_df[["id", "date", "heure", "duree_minutes", "cout", "effectuee", "payee", "douleur_avant", "douleur_apres"]],
+        use_container_width=True,
+        hide_index=True,
+    )
 
     with st.expander("➕ Planifier une séance", expanded=False):
         with st.form("form_add_seance_simple", clear_on_submit=True):
             d = st.date_input("Date *", format="DD/MM/YYYY")
+            h = st.time_input("Heure", value=time(10, 0))
             duree = st.number_input("Durée (minutes)", min_value=15, max_value=240, value=45)
+            cout = st.number_input("Coût (MAD)", min_value=0.0, step=10.0, value=float(tr["tarif_par_seance"]))
             douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, 5)
             notes = st.text_area("Notes")
             if st.form_submit_button("Enregistrer"):
                 run_exec(
-                    "INSERT INTO seances (traitement_id, date, duree_minutes, douleur_avant, notes) VALUES (?, ?, ?, ?, ?)",
-                    (tid, to_db_date(d), int(duree), int(douleur_avant), notes.strip()),
+                    "INSERT INTO seances (traitement_id, date, heure, duree_minutes, cout, douleur_avant, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        tid,
+                        to_db_date(d),
+                        to_db_time(h),
+                        int(duree),
+                        float(cout),
+                        int(douleur_avant),
+                        notes.strip(),
+                    ),
                 )
                 clear_caches()
                 st.success("Séance planifiée.")
@@ -1034,7 +1103,14 @@ def render_seances():
     with st.expander("✏️ Modifier / Supprimer", expanded=False):
         with st.form("form_edit_seance_simple"):
             d = st.date_input("Date", to_ui_date(row["date"]) or date.today(), format="DD/MM/YYYY")
+            h = st.time_input("Heure", to_ui_time(row["heure"]) or time(10, 0))
             duree = st.number_input("Durée (minutes)", 15, 240, int(row["duree_minutes"]))
+            cout = st.number_input(
+                "Coût (MAD)",
+                min_value=0.0,
+                step=10.0,
+                value=float(row["cout"]) if row["cout"] is not None else float(tr["tarif_par_seance"]),
+            )
             effectuee = st.checkbox("Effectuée", value=bool(row["effectuee"]))
             payee = st.checkbox("Payée", value=bool(row["payee"]))
             douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, int(row["douleur_avant"]) if row["douleur_avant"] is not None else 5)
@@ -1043,8 +1119,19 @@ def render_seances():
             c1, c2 = st.columns(2)
             if c1.form_submit_button("💾 Mettre à jour"):
                 run_exec(
-                    "UPDATE seances SET date=?, duree_minutes=?, effectuee=?, payee=?, douleur_avant=?, douleur_apres=?, notes=? WHERE id=?",
-                    (to_db_date(d), int(duree), int(effectuee), int(payee), int(douleur_avant), int(douleur_apres), notes.strip(), sid),
+                    "UPDATE seances SET date=?, heure=?, duree_minutes=?, cout=?, effectuee=?, payee=?, douleur_avant=?, douleur_apres=?, notes=? WHERE id=?",
+                    (
+                        to_db_date(d),
+                        to_db_time(h),
+                        int(duree),
+                        float(cout),
+                        int(effectuee),
+                        int(payee),
+                        int(douleur_avant),
+                        int(douleur_apres),
+                        notes.strip(),
+                        sid,
+                    ),
                 )
                 clear_caches()
                 st.success("Séance mise à jour.")
@@ -1058,11 +1145,13 @@ def render_seances():
 
 def view_manager():
     if "level" not in st.session_state:
-        st.session_state["level"] = "patients"
+        st.session_state["level"] = "dashboard"
         st.session_state["current_patient_id"] = None
         st.session_state["current_traitement_id"] = None
-    level = st.session_state.get("level", "patients")
-    if level == "patients":
+    level = st.session_state.get("level", "dashboard")
+    if level == "dashboard":
+        render_dashboard()
+    elif level == "patients":
         render_patients()
     elif level == "traitements":
         render_traitements()
