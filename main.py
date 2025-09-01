@@ -7,7 +7,7 @@ Fonctionnalités clés :
 - Tableau de bord (indicateurs, séances du jour/semaine)
 - CRUD Patients (créer, rechercher, modifier, supprimer)
 - CRUD Traitements (liés à un patient, progression, facturation simple)
-- CRUD Séances (planifier, marquer effectuée/payée, notes douleur avant/après)
+- CRUD Séances (planifier, marquer effectuée/payée, note)
 - Exports CSV basiques
 
 Données stockées en SQLite (fichier local "kine.db").
@@ -296,8 +296,6 @@ def list_seances(
         "cout",
         "effectuee",
         "payee",
-        "douleur_avant",
-        "douleur_apres",
         "notes",
         "created_at",
     ]
@@ -389,10 +387,10 @@ def render_dashboard():
         merged = upcoming.merge(t_df[["id", "patient_id"]], left_on="traitement_id", right_on="id", suffixes=("", "_t")).merge(
             p_df[["id", "nom", "prenom", "telephone"]], left_on="patient_id", right_on="id", suffixes=("", "_p")
         )
-        merged = merged[["date", "heure", "nom", "prenom", "telephone", "traitement_id", "id"]]
-        merged = merged.rename(columns={"id": "id_seance"})
+        merged = merged[["date", "heure", "nom", "prenom", "telephone"]]
         merged = merged.sort_values(["date", "heure"])
-        st.dataframe(merged, use_container_width=True, hide_index=True)
+        merged.index = range(1, len(merged) + 1)
+        st.dataframe(merged, use_container_width=True)
 
     st.markdown("---")
     st.markdown("### 🗓️ Calendrier des séances")
@@ -917,7 +915,9 @@ def render_patients():
         _go_to("dashboard")
     search = st.text_input("Recherche (nom, prénom, téléphone)")
     df = list_patients(search)
-    st.dataframe(df[["id", "nom", "prenom", "telephone", "email"]], use_container_width=True, hide_index=True)
+    display_df = df[["nom", "prenom", "telephone", "email"]].copy()
+    display_df.index = range(1, len(display_df) + 1)
+    st.dataframe(display_df, use_container_width=True)
 
     with st.expander("➕ Ajouter un patient", expanded=False):
         with st.form("form_add_patient_simple", clear_on_submit=True):
@@ -929,7 +929,7 @@ def render_patients():
                 telephone = st.text_input("Téléphone")
                 email = st.text_input("Email")
             with c2:
-                dtn = st.date_input("Date de naissance", format="DD/MM/YYYY")
+                dtn = st.date_input("Date de naissance", min_value=date(1900, 1, 1), format="DD/MM/YYYY")
                 adresse = st.text_area("Adresse")
                 notes = st.text_area("Notes")
             if st.form_submit_button("Enregistrer"):
@@ -948,8 +948,16 @@ def render_patients():
         st.info("Aucun patient trouvé.")
         return
 
-    pid = st.selectbox("Choisir un patient", df["id"].tolist())
+    patient_opts = {
+        f"{r['nom']} {r['prenom']} - {r['telephone']} - {r['cin']}": int(r["id"])
+        for _, r in df.iterrows()
+    }
+    selected_label = st.selectbox("Choisir un patient", list(patient_opts.keys()))
+    pid = patient_opts[selected_label]
     row = df[df["id"] == pid].iloc[0]
+    st.caption(
+        f"Patient sélectionné : {row['nom']} {row['prenom']} - {row['telephone']} - {row['cin']}"
+    )
     with st.expander("✏️ Modifier / Supprimer", expanded=False):
         with st.form("form_edit_patient_simple"):
             c1, c2 = st.columns(2)
@@ -960,7 +968,12 @@ def render_patients():
                 telephone = st.text_input("Téléphone", row["telephone"] or "")
                 email = st.text_input("Email", row["email"] or "")
             with c2:
-                dtn = st.date_input("Date de naissance", value=to_ui_date(row["date_naissance"]) or date(1990, 1, 1), format="DD/MM/YYYY")
+                dtn = st.date_input(
+                    "Date de naissance",
+                    value=to_ui_date(row["date_naissance"]) or date(1990, 1, 1),
+                    min_value=date(1900, 1, 1),
+                    format="DD/MM/YYYY",
+                )
                 adresse = st.text_area("Adresse", row["adresse"] or "")
                 notes = st.text_area("Notes", row["notes"] or "")
             c3, c4 = st.columns(2)
@@ -997,7 +1010,9 @@ def render_traitements():
         _go_to("patients")
 
     t_df = list_traitements(patient_id=pid)
-    st.dataframe(t_df[["id", "diagnostic", "type_prise_en_charge", "date_debut", "statut"]], use_container_width=True, hide_index=True)
+    display_t = t_df[["diagnostic", "type_prise_en_charge", "date_debut", "statut"]].copy()
+    display_t.index = range(1, len(display_t) + 1)
+    st.dataframe(display_t, use_container_width=True)
 
     with st.expander("➕ Ajouter un traitement", expanded=False):
         with st.form("form_add_traitement_simple", clear_on_submit=True):
@@ -1020,8 +1035,16 @@ def render_traitements():
         st.info("Aucun traitement pour ce patient.")
         return
 
-    tid = st.selectbox("Choisir un traitement", t_df["id"].tolist())
+    t_opts = {
+        f"{r['diagnostic']} - {r['date_debut']}": int(r["id"])
+        for _, r in t_df.iterrows()
+    }
+    t_label = st.selectbox("Choisir un traitement", list(t_opts.keys()))
+    tid = t_opts[t_label]
     tr = t_df[t_df["id"] == tid].iloc[0]
+    st.caption(
+        f"Traitement sélectionné : {tr['diagnostic']} - {tr['date_debut']}"
+    )
     with st.expander("✏️ Modifier / Supprimer", expanded=False):
         with st.form("form_edit_traitement_simple"):
             diagnostic = st.text_input("Diagnostic / Motif", tr["diagnostic"] or "")
@@ -1063,11 +1086,10 @@ def render_seances():
         _go_to("traitements", patient_id=pid)
 
     s_df = list_seances(traitement_id=tid)
-    st.dataframe(
-        s_df[["id", "date", "heure", "duree_minutes", "cout", "effectuee", "payee", "douleur_avant", "douleur_apres"]],
-        use_container_width=True,
-        hide_index=True,
-    )
+    display_s = s_df[["date", "heure", "duree_minutes", "cout", "effectuee", "payee", "notes"]].copy()
+    display_s = display_s.rename(columns={"notes": "Note"})
+    display_s.index = range(1, len(display_s) + 1)
+    st.dataframe(display_s, use_container_width=True)
 
     with st.expander("➕ Planifier une séance", expanded=False):
         with st.form("form_add_seance_simple", clear_on_submit=True):
@@ -1075,18 +1097,16 @@ def render_seances():
             h = st.time_input("Heure", value=time(10, 0))
             duree = st.number_input("Durée (minutes)", min_value=15, max_value=240, value=45)
             cout = st.number_input("Coût (MAD)", min_value=0.0, step=10.0, value=float(tr["tarif_par_seance"]))
-            douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, 5)
-            notes = st.text_area("Notes")
+            notes = st.text_area("Note")
             if st.form_submit_button("Enregistrer"):
                 run_exec(
-                    "INSERT INTO seances (traitement_id, date, heure, duree_minutes, cout, douleur_avant, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO seances (traitement_id, date, heure, duree_minutes, cout, notes) VALUES (?, ?, ?, ?, ?, ?)",
                     (
                         tid,
                         to_db_date(d),
                         to_db_time(h),
                         int(duree),
                         float(cout),
-                        int(douleur_avant),
                         notes.strip(),
                     ),
                 )
@@ -1098,8 +1118,16 @@ def render_seances():
         st.info("Aucune séance pour ce traitement.")
         return
 
-    sid = st.selectbox("Choisir une séance", s_df["id"].tolist())
+    s_opts = {
+        f"{r['date']} {r['heure'] or ''}": int(r["id"])
+        for _, r in s_df.iterrows()
+    }
+    s_label = st.selectbox("Choisir une séance", list(s_opts.keys()))
+    sid = s_opts[s_label]
     row = s_df[s_df["id"] == sid].iloc[0]
+    st.caption(
+        f"Séance sélectionnée : {row['date']} {row['heure'] or ''}"
+    )
     with st.expander("✏️ Modifier / Supprimer", expanded=False):
         with st.form("form_edit_seance_simple"):
             d = st.date_input("Date", to_ui_date(row["date"]) or date.today(), format="DD/MM/YYYY")
@@ -1113,13 +1141,11 @@ def render_seances():
             )
             effectuee = st.checkbox("Effectuée", value=bool(row["effectuee"]))
             payee = st.checkbox("Payée", value=bool(row["payee"]))
-            douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, int(row["douleur_avant"]) if row["douleur_avant"] is not None else 5)
-            douleur_apres = st.slider("Douleur après (0-10)", 0, 10, int(row["douleur_apres"]) if row["douleur_apres"] is not None else 3)
-            notes = st.text_area("Notes", row["notes"] or "")
+            notes = st.text_area("Note", row["notes"] or "")
             c1, c2 = st.columns(2)
             if c1.form_submit_button("💾 Mettre à jour"):
                 run_exec(
-                    "UPDATE seances SET date=?, heure=?, duree_minutes=?, cout=?, effectuee=?, payee=?, douleur_avant=?, douleur_apres=?, notes=? WHERE id=?",
+                    "UPDATE seances SET date=?, heure=?, duree_minutes=?, cout=?, effectuee=?, payee=?, notes=? WHERE id=?",
                     (
                         to_db_date(d),
                         to_db_time(h),
@@ -1127,8 +1153,6 @@ def render_seances():
                         float(cout),
                         int(effectuee),
                         int(payee),
-                        int(douleur_avant),
-                        int(douleur_apres),
                         notes.strip(),
                         sid,
                     ),
