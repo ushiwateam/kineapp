@@ -172,6 +172,7 @@ def run_exec(query: str, params: tuple = ()) -> int:
 # Cache des sélections pour performance
 @st.cache_data(ttl=10, show_spinner=False)
 def list_patients(search: str = "") -> pd.DataFrame:
+    """Retrieve patients with consistent DataFrame columns."""
     if search:
         rows = run_query(
             "SELECT * FROM patients WHERE nom LIKE ? OR prenom LIKE ? OR telephone LIKE ? ORDER BY nom, prenom",
@@ -179,13 +180,25 @@ def list_patients(search: str = "") -> pd.DataFrame:
         )
     else:
         rows = run_query("SELECT * FROM patients ORDER BY nom, prenom")
-    return pd.DataFrame(rows)
+    columns = [
+        "id",
+        "nom",
+        "prenom",
+        "date_naissance",
+        "telephone",
+        "email",
+        "adresse",
+        "notes",
+        "created_at",
+    ]
+    return pd.DataFrame([dict(r) for r in rows], columns=columns)
 
 
 @st.cache_data(ttl=10, show_spinner=False)
 def list_traitements(patient_id: Optional[int] = None, statut: Optional[str] = None) -> pd.DataFrame:
+    """Retrieve treatments with consistent DataFrame columns."""
     q = "SELECT * FROM traitements"
-    clauses = []
+    clauses: List[str] = []
     params: List[Any] = []
     if patient_id:
         clauses.append("patient_id = ?")
@@ -197,7 +210,19 @@ def list_traitements(patient_id: Optional[int] = None, statut: Optional[str] = N
         q += " WHERE " + " AND ".join(clauses)
     q += " ORDER BY date_debut DESC, id DESC"
     rows = run_query(q, tuple(params))
-    return pd.DataFrame(rows)
+    columns = [
+        "id",
+        "patient_id",
+        "diagnostic",
+        "type_prise_en_charge",
+        "date_debut",
+        "nb_seances_prevues",
+        "tarif_par_seance",
+        "notes",
+        "statut",
+        "created_at",
+    ]
+    return pd.DataFrame([dict(r) for r in rows], columns=columns)
 
 
 @st.cache_data(ttl=10, show_spinner=False)
@@ -206,8 +231,9 @@ def list_seances(
     date_min: Optional[str] = None,
     date_max: Optional[str] = None,
 ) -> pd.DataFrame:
+    """Retrieve sessions with consistent DataFrame columns."""
     q = "SELECT * FROM seances"
-    clauses = []
+    clauses: List[str] = []
     params: List[Any] = []
     if traitement_id:
         clauses.append("traitement_id = ?")
@@ -222,13 +248,33 @@ def list_seances(
         q += " WHERE " + " AND ".join(clauses)
     q += " ORDER BY date ASC"
     rows = run_query(q, tuple(params))
-    return pd.DataFrame(rows)
+    columns = [
+        "id",
+        "traitement_id",
+        "date",
+        "duree_minutes",
+        "effectuee",
+        "payee",
+        "douleur_avant",
+        "douleur_apres",
+        "notes",
+        "created_at",
+    ]
+    return pd.DataFrame([dict(r) for r in rows], columns=columns)
 
 
 def clear_caches():
     list_patients.clear()
     list_traitements.clear()
     list_seances.clear()
+
+
+def st_rerun() -> None:
+    """Compatibility wrapper to rerun the app across Streamlit versions."""
+    try:
+        st.experimental_rerun()  # Older versions
+    except AttributeError:
+        st.rerun()
 
 
 # ==========================
@@ -341,7 +387,7 @@ def view_patients():
                     )
                     clear_caches()
                     st.success("Patient ajouté avec succès.")
-                    st.experimental_rerun()
+                    st_rerun()
 
     st.markdown("### 📋 Liste des patients")
     if df.empty:
@@ -379,12 +425,12 @@ def view_patients():
                 )
                 clear_caches()
                 st.success("Patient mis à jour.")
-                st.experimental_rerun()
+                st_rerun()
         if c4.form_submit_button("🗑️ Supprimer", help="Supprime également les traitements et séances associés"):
             run_exec("DELETE FROM patients WHERE id=?", (sel_id,))
             clear_caches()
             st.success("Patient supprimé.")
-            st.experimental_rerun()
+            st_rerun()
 
 
 def view_traitements():
@@ -420,7 +466,7 @@ def view_traitements():
                 )
                 clear_caches()
                 st.success("Traitement ajouté.")
-                st.experimental_rerun()
+                st_rerun()
 
     st.markdown("### 📋 Liste des traitements")
     statut = st.selectbox("Filtrer par statut", ["Tous", "En cours", "Terminé", "Archivé"], index=1)
@@ -479,17 +525,17 @@ def view_traitements():
             )
             clear_caches()
             st.success("Traitement mis à jour.")
-            st.experimental_rerun()
+            st_rerun()
         if c2.form_submit_button("🗑️ Supprimer", help="Supprime les séances associées"):
             run_exec("DELETE FROM traitements WHERE id=?", (tid,))
             clear_caches()
             st.success("Traitement supprimé.")
-            st.experimental_rerun()
+            st_rerun()
         if c3.form_submit_button("✅ Clôturer (Terminé)"):
             run_exec("UPDATE traitements SET statut='Terminé' WHERE id=?", (tid,))
             clear_caches()
             st.success("Traitement clôturé.")
-            st.experimental_rerun()
+            st_rerun()
 
 
 def view_seances():
@@ -526,7 +572,7 @@ def view_seances():
                 )
                 clear_caches()
                 st.success("Séance planifiée.")
-                st.experimental_rerun()
+                st_rerun()
 
     st.markdown("### 🔎 Filtrer")
     c1, c2, c3 = st.columns(3)
@@ -590,12 +636,12 @@ def view_seances():
             )
             clear_caches()
             st.success("Séance mise à jour.")
-            st.experimental_rerun()
+            st_rerun()
         if c2.form_submit_button("🗑️ Supprimer"):
             run_exec("DELETE FROM seances WHERE id=?", (sid,))
             clear_caches()
             st.success("Séance supprimée.")
-            st.experimental_rerun()
+            st_rerun()
 
 
 def view_exports():
