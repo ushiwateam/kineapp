@@ -304,6 +304,8 @@ def progression_traitement(t_df: pd.DataFrame, s_df: pd.DataFrame) -> pd.DataFra
     )
     t_df["montant_du"] = (t_df["seances_effectuees"] - t_df["seances_payees"]) * t_df["tarif_par_seance"]
 
+    return t_df
+
 
 # ==========================
 # Views
