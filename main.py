@@ -113,6 +113,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nom TEXT NOT NULL,
                 prenom TEXT,
+                cin TEXT,
                 date_naissance TEXT,
                 telephone TEXT,
                 email TEXT,
@@ -150,6 +151,11 @@ def init_db():
             );
             """
         )
+        # Ensure new columns exist when migrating older databases
+        try:
+            cur.execute("ALTER TABLE patients ADD COLUMN cin TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
 
@@ -175,8 +181,8 @@ def list_patients(search: str = "") -> pd.DataFrame:
     """Retrieve patients with consistent DataFrame columns."""
     if search:
         rows = run_query(
-            "SELECT * FROM patients WHERE nom LIKE ? OR prenom LIKE ? OR telephone LIKE ? ORDER BY nom, prenom",
-            (f"%{search}%", f"%{search}%", f"%{search}%"),
+            "SELECT * FROM patients WHERE nom LIKE ? OR prenom LIKE ? OR telephone LIKE ? OR cin LIKE ? ORDER BY nom, prenom",
+            (f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"),
         )
     else:
         rows = run_query("SELECT * FROM patients ORDER BY nom, prenom")
@@ -184,6 +190,7 @@ def list_patients(search: str = "") -> pd.DataFrame:
         "id",
         "nom",
         "prenom",
+        "cin",
         "date_naissance",
         "telephone",
         "email",
@@ -364,6 +371,7 @@ def view_patients():
             with c1:
                 nom = st.text_input("Nom *")
                 prenom = st.text_input("Prénom")
+                cin = st.text_input("CIN")
                 telephone = st.text_input("Téléphone")
                 email = st.text_input("Email")
             with c2:
@@ -376,10 +384,11 @@ def view_patients():
                     st.error("Le nom est obligatoire.")
                 else:
                     run_exec(
-                        "INSERT INTO patients (nom, prenom, date_naissance, telephone, email, adresse, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO patients (nom, prenom, cin, date_naissance, telephone, email, adresse, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             nom.strip(),
                             prenom.strip(),
+                            cin.strip(),
                             to_db_date(dtn),
                             telephone.strip(),
                             email.strip(),
@@ -395,7 +404,7 @@ def view_patients():
     if df.empty:
         st.info("Aucun patient trouvé.")
     else:
-        st.dataframe(df[["id", "nom", "prenom", "telephone", "email"]], use_container_width=True, hide_index=True)
+        st.dataframe(df[["id", "nom", "prenom", "cin", "telephone", "email"]], use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.markdown("### ✏️ Modifier / Supprimer")
@@ -410,6 +419,7 @@ def view_patients():
         with c1:
             nom = st.text_input("Nom *", row["nom"])
             prenom = st.text_input("Prénom", row["prenom"] or "")
+            cin = st.text_input("CIN", row["cin"] or "")
             telephone = st.text_input("Téléphone", row["telephone"] or "")
             email = st.text_input("Email", row["email"] or "")
         with c2:
@@ -422,8 +432,8 @@ def view_patients():
                 st.error("Le nom est obligatoire.")
             else:
                 run_exec(
-                    "UPDATE patients SET nom=?, prenom=?, date_naissance=?, telephone=?, email=?, adresse=?, notes=? WHERE id=?",
-                    (nom.strip(), prenom.strip(), to_db_date(dtn), telephone.strip(), email.strip(), adresse.strip(), notes.strip(), sel_id),
+                "UPDATE patients SET nom=?, prenom=?, cin=?, date_naissance=?, telephone=?, email=?, adresse=?, notes=? WHERE id=?",
+                    (nom.strip(), prenom.strip(), cin.strip(), to_db_date(dtn), telephone.strip(), email.strip(), adresse.strip(), notes.strip(), sel_id),
                 )
                 clear_caches()
                 st.success("Patient mis à jour.")
@@ -432,6 +442,164 @@ def view_patients():
             run_exec("DELETE FROM patients WHERE id=?", (sel_id,))
             clear_caches()
             st.success("Patient supprimé.")
+            st_rerun()
+
+    # ============================
+    # Traitements du patient
+    # ============================
+    st.markdown("---")
+    st.markdown("### 📝 Traitements du patient")
+    pt_df = list_traitements(patient_id=sel_id)
+
+    with st.expander("➕ Ajouter un traitement", expanded=False):
+        with st.form("form_add_traitement_for_patient", clear_on_submit=True):
+            diagnostic = st.text_input("Diagnostic / Motif")
+            tpec = st.text_input("Type de prise en charge", placeholder="Ex: Lombalgie, Rééducation post-op, etc.")
+            date_debut = st.date_input("Date de début", format="DD/MM/YYYY")
+            nb_prev = st.number_input("Nombre de séances prévues", min_value=1, max_value=100, value=10)
+            tarif = st.number_input("Tarif par séance (MAD)", min_value=0.0, step=10.0, value=0.0)
+            notes = st.text_area("Notes")
+            submitted = st.form_submit_button("Enregistrer")
+            if submitted:
+                run_exec(
+                    "INSERT INTO traitements (patient_id, diagnostic, type_prise_en_charge, date_debut, nb_seances_prevues, tarif_par_seance, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        sel_id,
+                        diagnostic.strip(),
+                        tpec.strip(),
+                        to_db_date(date_debut),
+                        int(nb_prev),
+                        float(tarif),
+                        notes.strip(),
+                    ),
+                )
+                clear_caches()
+                st.success("Traitement ajouté.")
+                st_rerun()
+
+    if pt_df.empty:
+        st.info("Aucun traitement pour ce patient.")
+        return
+
+    st.dataframe(
+        pt_df[["id", "diagnostic", "type_prise_en_charge", "date_debut", "statut"]],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("### ✏️ Modifier / Clôturer un traitement")
+    tid = st.selectbox("Choisir un traitement", pt_df["id"].tolist())
+    tr = pt_df[pt_df["id"] == tid].iloc[0]
+    with st.form("form_edit_traitement_for_patient"):
+        diagnostic = st.text_input("Diagnostic / Motif", tr["diagnostic"] or "")
+        tpec = st.text_input("Type de prise en charge", tr["type_prise_en_charge"] or "")
+        date_debut = st.date_input("Date de début", to_ui_date(tr["date_debut"]) or date.today(), format="DD/MM/YYYY")
+        nb_prev = st.number_input("Nombre de séances prévues", 1, 100, int(tr["nb_seances_prevues"]))
+        tarif = st.number_input("Tarif par séance (MAD)", min_value=0.0, step=10.0, value=float(tr["tarif_par_seance"]))
+        notes = st.text_area("Notes", tr["notes"] or "")
+        statut = st.selectbox("Statut", ["En cours", "Terminé", "Archivé"], index=["En cours", "Terminé", "Archivé"].index(tr["statut"]))
+        c1, c2, c3 = st.columns(3)
+        if c1.form_submit_button("💾 Mettre à jour"):
+            run_exec(
+                "UPDATE traitements SET diagnostic=?, type_prise_en_charge=?, date_debut=?, nb_seances_prevues=?, tarif_par_seance=?, notes=?, statut=? WHERE id=?",
+                (
+                    diagnostic.strip(),
+                    tpec.strip(),
+                    to_db_date(date_debut),
+                    int(nb_prev),
+                    float(tarif),
+                    notes.strip(),
+                    statut,
+                    tid,
+                ),
+            )
+            clear_caches()
+            st.success("Traitement mis à jour.")
+            st_rerun()
+        if c2.form_submit_button("🗑️ Supprimer", help="Supprime les séances associées"):
+            run_exec("DELETE FROM traitements WHERE id=?", (tid,))
+            clear_caches()
+            st.success("Traitement supprimé.")
+            st_rerun()
+        if c3.form_submit_button("✅ Clôturer (Terminé)"):
+            run_exec("UPDATE traitements SET statut='Terminé' WHERE id=?", (tid,))
+            clear_caches()
+            st.success("Traitement clôturé.")
+            st_rerun()
+
+    # ============================
+    # Séances du traitement
+    # ============================
+    st.markdown("---")
+    st.markdown("### 🗓️ Séances du traitement")
+    s_df = list_seances(traitement_id=tid)
+
+    with st.expander("➕ Planifier une séance", expanded=False):
+        with st.form("form_add_seance_for_patient", clear_on_submit=True):
+            d = st.date_input("Date *", format="DD/MM/YYYY")
+            duree = st.number_input("Durée (minutes)", min_value=15, max_value=240, value=45)
+            douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, 5)
+            notes = st.text_area("Notes")
+            submitted = st.form_submit_button("Enregistrer")
+            if submitted:
+                run_exec(
+                    "INSERT INTO seances (traitement_id, date, duree_minutes, douleur_avant, notes) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        tid,
+                        to_db_date(d),
+                        int(duree),
+                        int(douleur_avant),
+                        notes.strip(),
+                    ),
+                )
+                clear_caches()
+                st.success("Séance planifiée.")
+                st_rerun()
+
+    if s_df.empty:
+        st.info("Aucune séance pour ce traitement.")
+        return
+
+    s_df = s_df.sort_values("date")
+    st.dataframe(
+        s_df[["id", "date", "duree_minutes", "effectuee", "payee", "douleur_avant", "douleur_apres", "notes"]],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("### ✏️ Modifier une séance")
+    sid = st.selectbox("Choisir une séance (ID)", s_df["id"].tolist())
+    row = s_df[s_df["id"] == sid].iloc[0]
+    with st.form("form_edit_seance_for_patient"):
+        d = st.date_input("Date", to_ui_date(row["date"]) or date.today(), format="DD/MM/YYYY")
+        duree = st.number_input("Durée (minutes)", 15, 240, int(row["duree_minutes"]))
+        effectuee = st.checkbox("Effectuée", value=bool(row["effectuee"]))
+        payee = st.checkbox("Payée", value=bool(row["payee"]))
+        douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, int(row["douleur_avant"]) if row["douleur_avant"] is not None else 5)
+        douleur_apres = st.slider("Douleur après (0-10)", 0, 10, int(row["douleur_apres"]) if row["douleur_apres"] is not None else 3)
+        notes = st.text_area("Notes", row["notes"] or "")
+        c1, c2 = st.columns(2)
+        if c1.form_submit_button("💾 Mettre à jour"):
+            run_exec(
+                "UPDATE seances SET date=?, duree_minutes=?, effectuee=?, payee=?, douleur_avant=?, douleur_apres=?, notes=? WHERE id=?",
+                (
+                    to_db_date(d),
+                    int(duree),
+                    int(effectuee),
+                    int(payee),
+                    int(douleur_avant),
+                    int(douleur_apres),
+                    notes.strip(),
+                    sid,
+                ),
+            )
+            clear_caches()
+            st.success("Séance mise à jour.")
+            st_rerun()
+        if c2.form_submit_button("🗑️ Supprimer"):
+            run_exec("DELETE FROM seances WHERE id=?", (sid,))
+            clear_caches()
+            st.success("Séance supprimée.")
             st_rerun()
 
 
