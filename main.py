@@ -323,17 +323,25 @@ def view_patients():
                 adresse = st.text_area("Adresse")
                 notes = st.text_area("Notes")
             submitted = st.form_submit_button("Enregistrer")
-        if submitted:
-            if not nom.strip():
-                st.error("Le nom est obligatoire.")
-            else:
-                run_exec(
-                    "INSERT INTO patients (nom, prenom, date_naissance, telephone, email, adresse, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (nom.strip(), prenom.strip(), to_db_date(dtn), telephone.strip(), email.strip(), adresse.strip(), notes.strip()),
-                )
-                clear_caches()
-                st.success("Patient ajouté avec succès.")
-                st.experimental_rerun()
+            if submitted:
+                if not nom.strip():
+                    st.error("Le nom est obligatoire.")
+                else:
+                    run_exec(
+                        "INSERT INTO patients (nom, prenom, date_naissance, telephone, email, adresse, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            nom.strip(),
+                            prenom.strip(),
+                            to_db_date(dtn),
+                            telephone.strip(),
+                            email.strip(),
+                            adresse.strip(),
+                            notes.strip(),
+                        ),
+                    )
+                    clear_caches()
+                    st.success("Patient ajouté avec succès.")
+                    st.experimental_rerun()
 
     st.markdown("### 📋 Liste des patients")
     if df.empty:
@@ -397,14 +405,22 @@ def view_traitements():
             tarif = st.number_input("Tarif par séance (MAD)", min_value=0.0, step=10.0, value=0.0)
             notes = st.text_area("Notes")
             submitted = st.form_submit_button("Enregistrer")
-        if submitted:
-            run_exec(
-                "INSERT INTO traitements (patient_id, diagnostic, type_prise_en_charge, date_debut, nb_seances_prevues, tarif_par_seance, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (pmap[patient_label], diagnostic.strip(), tpec.strip(), to_db_date(date_debut), int(nb_prev), float(tarif), notes.strip()),
-            )
-            clear_caches()
-            st.success("Traitement ajouté.")
-            st.experimental_rerun()
+            if submitted:
+                run_exec(
+                    "INSERT INTO traitements (patient_id, diagnostic, type_prise_en_charge, date_debut, nb_seances_prevues, tarif_par_seance, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        pmap[patient_label],
+                        diagnostic.strip(),
+                        tpec.strip(),
+                        to_db_date(date_debut),
+                        int(nb_prev),
+                        float(tarif),
+                        notes.strip(),
+                    ),
+                )
+                clear_caches()
+                st.success("Traitement ajouté.")
+                st.experimental_rerun()
 
     st.markdown("### 📋 Liste des traitements")
     statut = st.selectbox("Filtrer par statut", ["Tous", "En cours", "Terminé", "Archivé"], index=1)
@@ -497,14 +513,20 @@ def view_seances():
             douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, 5)
             notes = st.text_area("Notes")
             submitted = st.form_submit_button("Enregistrer")
-        if submitted:
-            run_exec(
-                "INSERT INTO seances (traitement_id, date, duree_minutes, douleur_avant, notes) VALUES (?, ?, ?, ?, ?)",
-                (tmap[label], to_db_date(d), int(duree), int(douleur_avant), notes.strip()),
-            )
-            clear_caches()
-            st.success("Séance planifiée.")
-            st.experimental_rerun()
+            if submitted:
+                run_exec(
+                    "INSERT INTO seances (traitement_id, date, duree_minutes, douleur_avant, notes) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        tmap[label],
+                        to_db_date(d),
+                        int(duree),
+                        int(douleur_avant),
+                        notes.strip(),
+                    ),
+                )
+                clear_caches()
+                st.success("Séance planifiée.")
+                st.experimental_rerun()
 
     st.markdown("### 🔎 Filtrer")
     c1, c2, c3 = st.columns(3)
