@@ -844,34 +844,233 @@ def view_exports():
         total_faites = int(s_df["effectuee"].sum())
         total_payees = int(s_df["payee"].sum())
         st.write(f"Séances effectuées : **{total_faites}** · Séances payées : **{total_payees}**")
+    
 
+# ==========================
+# Single hierarchical view
+# ==========================
+
+def _go_to(level: str, patient_id: int | None = None, traitement_id: int | None = None) -> None:
+    """Helper to switch between hierarchical levels."""
+    st.session_state["level"] = level
+    st.session_state["current_patient_id"] = patient_id
+    st.session_state["current_traitement_id"] = traitement_id
+    st_rerun()
+
+
+def render_patients():
+    st.subheader("👤 Patients")
+    search = st.text_input("Recherche (nom, prénom, téléphone)")
+    df = list_patients(search)
+    st.dataframe(df[["id", "nom", "prenom", "telephone", "email"]], use_container_width=True, hide_index=True)
+
+    with st.expander("➕ Ajouter un patient", expanded=False):
+        with st.form("form_add_patient_simple", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                nom = st.text_input("Nom *")
+                prenom = st.text_input("Prénom")
+                cin = st.text_input("CIN")
+                telephone = st.text_input("Téléphone")
+                email = st.text_input("Email")
+            with c2:
+                dtn = st.date_input("Date de naissance", format="DD/MM/YYYY")
+                adresse = st.text_area("Adresse")
+                notes = st.text_area("Notes")
+            if st.form_submit_button("Enregistrer"):
+                if not nom.strip():
+                    st.error("Le nom est obligatoire.")
+                else:
+                    run_exec(
+                        "INSERT INTO patients (nom, prenom, cin, date_naissance, telephone, email, adresse, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (nom.strip(), prenom.strip(), cin.strip(), to_db_date(dtn), telephone.strip(), email.strip(), adresse.strip(), notes.strip()),
+                    )
+                    clear_caches()
+                    st.success("Patient ajouté avec succès.")
+                    st_rerun()
+
+    if df.empty:
+        st.info("Aucun patient trouvé.")
+        return
+
+    pid = st.selectbox("Choisir un patient", df["id"].tolist())
+    row = df[df["id"] == pid].iloc[0]
+    with st.expander("✏️ Modifier / Supprimer", expanded=False):
+        with st.form("form_edit_patient_simple"):
+            c1, c2 = st.columns(2)
+            with c1:
+                nom = st.text_input("Nom *", row["nom"])
+                prenom = st.text_input("Prénom", row["prenom"] or "")
+                cin = st.text_input("CIN", row["cin"] or "")
+                telephone = st.text_input("Téléphone", row["telephone"] or "")
+                email = st.text_input("Email", row["email"] or "")
+            with c2:
+                dtn = st.date_input("Date de naissance", value=to_ui_date(row["date_naissance"]) or date(1990, 1, 1), format="DD/MM/YYYY")
+                adresse = st.text_area("Adresse", row["adresse"] or "")
+                notes = st.text_area("Notes", row["notes"] or "")
+            c3, c4 = st.columns(2)
+            if c3.form_submit_button("💾 Mettre à jour"):
+                if not nom.strip():
+                    st.error("Le nom est obligatoire.")
+                else:
+                    run_exec(
+                        "UPDATE patients SET nom=?, prenom=?, cin=?, date_naissance=?, telephone=?, email=?, adresse=?, notes=? WHERE id=?",
+                        (nom.strip(), prenom.strip(), cin.strip(), to_db_date(dtn), telephone.strip(), email.strip(), adresse.strip(), notes.strip(), pid),
+                    )
+                    clear_caches()
+                    st.success("Patient mis à jour.")
+                    st_rerun()
+            if c4.form_submit_button("🗑️ Supprimer", help="Supprime également les traitements et séances associés"):
+                run_exec("DELETE FROM patients WHERE id=?", (pid,))
+                clear_caches()
+                st.success("Patient supprimé.")
+                st_rerun()
+
+    if st.button("📋 Ouvrir les traitements du patient"):
+        _go_to("traitements", patient_id=pid)
+
+
+def render_traitements():
+    pid = st.session_state.get("current_patient_id")
+    if pid is None:
+        _go_to("patients")
+        return
+    p_df = list_patients()
+    patient = p_df[p_df["id"] == pid].iloc[0]
+    st.subheader(f"📝 Traitements – {patient['nom']} {patient['prenom']}")
+    if st.button("⬅️ Retour aux patients"):
+        _go_to("patients")
+
+    t_df = list_traitements(patient_id=pid)
+    st.dataframe(t_df[["id", "diagnostic", "type_prise_en_charge", "date_debut", "statut"]], use_container_width=True, hide_index=True)
+
+    with st.expander("➕ Ajouter un traitement", expanded=False):
+        with st.form("form_add_traitement_simple", clear_on_submit=True):
+            diagnostic = st.text_input("Diagnostic / Motif")
+            tpec = st.text_input("Type de prise en charge", placeholder="Ex: Lombalgie, Rééducation post-op, etc.")
+            date_debut = st.date_input("Date de début", format="DD/MM/YYYY")
+            nb_prev = st.number_input("Nombre de séances prévues", min_value=1, max_value=100, value=10)
+            tarif = st.number_input("Tarif par séance (MAD)", min_value=0.0, step=10.0, value=0.0)
+            notes = st.text_area("Notes")
+            if st.form_submit_button("Enregistrer"):
+                run_exec(
+                    "INSERT INTO traitements (patient_id, diagnostic, type_prise_en_charge, date_debut, nb_seances_prevues, tarif_par_seance, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (pid, diagnostic.strip(), tpec.strip(), to_db_date(date_debut), int(nb_prev), float(tarif), notes.strip()),
+                )
+                clear_caches()
+                st.success("Traitement ajouté.")
+                st_rerun()
+
+    if t_df.empty:
+        st.info("Aucun traitement pour ce patient.")
+        return
+
+    tid = st.selectbox("Choisir un traitement", t_df["id"].tolist())
+    tr = t_df[t_df["id"] == tid].iloc[0]
+    with st.expander("✏️ Modifier / Supprimer", expanded=False):
+        with st.form("form_edit_traitement_simple"):
+            diagnostic = st.text_input("Diagnostic / Motif", tr["diagnostic"] or "")
+            tpec = st.text_input("Type de prise en charge", tr["type_prise_en_charge"] or "")
+            date_debut = st.date_input("Date de début", to_ui_date(tr["date_debut"]) or date.today(), format="DD/MM/YYYY")
+            nb_prev = st.number_input("Nombre de séances prévues", 1, 100, int(tr["nb_seances_prevues"]))
+            tarif = st.number_input("Tarif par séance (MAD)", min_value=0.0, step=10.0, value=float(tr["tarif_par_seance"]))
+            notes = st.text_area("Notes", tr["notes"] or "")
+            statut = st.selectbox("Statut", ["En cours", "Terminé", "Archivé"], index=["En cours", "Terminé", "Archivé"].index(tr["statut"]))
+            c1, c2 = st.columns(2)
+            if c1.form_submit_button("💾 Mettre à jour"):
+                run_exec(
+                    "UPDATE traitements SET diagnostic=?, type_prise_en_charge=?, date_debut=?, nb_seances_prevues=?, tarif_par_seance=?, notes=?, statut=? WHERE id=?",
+                    (diagnostic.strip(), tpec.strip(), to_db_date(date_debut), int(nb_prev), float(tarif), notes.strip(), statut, tid),
+                )
+                clear_caches()
+                st.success("Traitement mis à jour.")
+                st_rerun()
+            if c2.form_submit_button("🗑️ Supprimer", help="Supprime les séances associées"):
+                run_exec("DELETE FROM traitements WHERE id=?", (tid,))
+                clear_caches()
+                st.success("Traitement supprimé.")
+                st_rerun()
+
+    if st.button("🗓️ Ouvrir les séances du traitement"):
+        _go_to("seances", patient_id=pid, traitement_id=tid)
+
+
+def render_seances():
+    tid = st.session_state.get("current_traitement_id")
+    pid = st.session_state.get("current_patient_id")
+    if tid is None or pid is None:
+        _go_to("patients")
+        return
+    t_df = list_traitements(patient_id=pid)
+    tr = t_df[t_df["id"] == tid].iloc[0]
+    st.subheader("🗓️ Séances")
+    if st.button("⬅️ Retour aux traitements"):
+        _go_to("traitements", patient_id=pid)
+
+    s_df = list_seances(traitement_id=tid)
+    st.dataframe(s_df[["id", "date", "duree_minutes", "effectuee", "payee", "douleur_avant", "douleur_apres"]], use_container_width=True, hide_index=True)
+
+    with st.expander("➕ Planifier une séance", expanded=False):
+        with st.form("form_add_seance_simple", clear_on_submit=True):
+            d = st.date_input("Date *", format="DD/MM/YYYY")
+            duree = st.number_input("Durée (minutes)", min_value=15, max_value=240, value=45)
+            douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, 5)
+            notes = st.text_area("Notes")
+            if st.form_submit_button("Enregistrer"):
+                run_exec(
+                    "INSERT INTO seances (traitement_id, date, duree_minutes, douleur_avant, notes) VALUES (?, ?, ?, ?, ?)",
+                    (tid, to_db_date(d), int(duree), int(douleur_avant), notes.strip()),
+                )
+                clear_caches()
+                st.success("Séance planifiée.")
+                st_rerun()
+
+    if s_df.empty:
+        st.info("Aucune séance pour ce traitement.")
+        return
+
+    sid = st.selectbox("Choisir une séance", s_df["id"].tolist())
+    row = s_df[s_df["id"] == sid].iloc[0]
+    with st.expander("✏️ Modifier / Supprimer", expanded=False):
+        with st.form("form_edit_seance_simple"):
+            d = st.date_input("Date", to_ui_date(row["date"]) or date.today(), format="DD/MM/YYYY")
+            duree = st.number_input("Durée (minutes)", 15, 240, int(row["duree_minutes"]))
+            effectuee = st.checkbox("Effectuée", value=bool(row["effectuee"]))
+            payee = st.checkbox("Payée", value=bool(row["payee"]))
+            douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, int(row["douleur_avant"]) if row["douleur_avant"] is not None else 5)
+            douleur_apres = st.slider("Douleur après (0-10)", 0, 10, int(row["douleur_apres"]) if row["douleur_apres"] is not None else 3)
+            notes = st.text_area("Notes", row["notes"] or "")
+            c1, c2 = st.columns(2)
+            if c1.form_submit_button("💾 Mettre à jour"):
+                run_exec(
+                    "UPDATE seances SET date=?, duree_minutes=?, effectuee=?, payee=?, douleur_avant=?, douleur_apres=?, notes=? WHERE id=?",
+                    (to_db_date(d), int(duree), int(effectuee), int(payee), int(douleur_avant), int(douleur_apres), notes.strip(), sid),
+                )
+                clear_caches()
+                st.success("Séance mise à jour.")
+                st_rerun()
+            if c2.form_submit_button("🗑️ Supprimer"):
+                run_exec("DELETE FROM seances WHERE id=?", (sid,))
+                clear_caches()
+                st.success("Séance supprimée.")
+                st_rerun()
+
+
+def view_manager():
+    if "level" not in st.session_state:
+        st.session_state["level"] = "patients"
+        st.session_state["current_patient_id"] = None
+        st.session_state["current_traitement_id"] = None
+    level = st.session_state.get("level", "patients")
+    if level == "patients":
+        render_patients()
+    elif level == "traitements":
+        render_traitements()
+    else:
+        render_seances()
 
 # ==========================
 # App Entry
 # ==========================
 init_db()
-
-st.sidebar.title("🧑‍⚕️ Kiné – Gestion")
-st.sidebar.caption("Maroc")
-page = st.sidebar.radio(
-    "Naviguer",
-    (
-        "Tableau de bord",
-        "Patients",
-        "Traitements",
-        "Séances",
-        "Exports / Rapports",
-    ),
-    index=0,
-)
-
-if page == "Tableau de bord":
-    view_dashboard()
-elif page == "Patients":
-    view_patients()
-elif page == "Traitements":
-    view_traitements()
-elif page == "Séances":
-    view_seances()
-else:
-    view_exports()
+view_manager()
