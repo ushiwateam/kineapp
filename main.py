@@ -906,7 +906,6 @@ def _go_to(level: str, patient_id: int | None = None, traitement_id: int | None 
     st.session_state["level"] = level
     st.session_state["current_patient_id"] = patient_id
     st.session_state["current_traitement_id"] = traitement_id
-    st.session_state["current_seance_id"] = None
     st_rerun()
 
 
@@ -917,32 +916,8 @@ def render_patients():
     search = st.text_input("Recherche (nom, prénom, téléphone)")
     df = list_patients(search)
     display_df = df[["nom", "prenom", "telephone", "email"]].copy()
-
-    def _patient_highlight(row: pd.Series) -> list[str]:
-        pid = st.session_state.get("current_patient_id")
-        if pid is None:
-            return [""] * len(row)
-        idx = df.index[df["id"] == pid]
-        if not idx.empty and row.name == idx[0]:
-            return ["background-color: #fff3cd"] * len(row)
-        return [""] * len(row)
-
-    styled_df = display_df.style.apply(_patient_highlight, axis=1)
-    st.data_editor(
-        styled_df,
-        hide_index=True,
-        use_container_width=True,
-        on_select="index",
-        key="patients_table",
-    )
-
-    sel = (
-        st.session_state.get("patients_table", {})
-        .get("selection", {})
-        .get("rows", [])
-    )
-    if sel:
-        st.session_state["current_patient_id"] = int(df.iloc[sel[0]]["id"])
+    display_df.index = range(1, len(display_df) + 1)
+    st.dataframe(display_df, use_container_width=True)
 
     with st.expander("➕ Ajouter un patient", expanded=False):
         with st.form("form_add_patient_simple", clear_on_submit=True):
@@ -973,11 +948,12 @@ def render_patients():
         st.info("Aucun patient trouvé.")
         return
 
-    pid = st.session_state.get("current_patient_id")
-    if pid is None:
-        st.caption("Aucun patient sélectionné.")
-        return
-
+    patient_opts = {
+        f"{r['nom']} {r['prenom']} - {r['telephone']} - {r['cin']}": int(r["id"])
+        for _, r in df.iterrows()
+    }
+    selected_label = st.selectbox("Choisir un patient", list(patient_opts.keys()))
+    pid = patient_opts[selected_label]
     row = df[df["id"] == pid].iloc[0]
     st.caption(
         f"Patient sélectionné : {row['nom']} {row['prenom']} - {row['telephone']} - {row['cin']}"
@@ -1035,32 +1011,8 @@ def render_traitements():
 
     t_df = list_traitements(patient_id=pid)
     display_t = t_df[["diagnostic", "type_prise_en_charge", "date_debut", "statut"]].copy()
-
-    def _traitement_highlight(row: pd.Series) -> list[str]:
-        tid = st.session_state.get("current_traitement_id")
-        if tid is None:
-            return [""] * len(row)
-        idx = t_df.index[t_df["id"] == tid]
-        if not idx.empty and row.name == idx[0]:
-            return ["background-color: #fff3cd"] * len(row)
-        return [""] * len(row)
-
-    styled_t = display_t.style.apply(_traitement_highlight, axis=1)
-    st.data_editor(
-        styled_t,
-        hide_index=True,
-        use_container_width=True,
-        on_select="index",
-        key="traitements_table",
-    )
-
-    sel = (
-        st.session_state.get("traitements_table", {})
-        .get("selection", {})
-        .get("rows", [])
-    )
-    if sel:
-        st.session_state["current_traitement_id"] = int(t_df.iloc[sel[0]]["id"])
+    display_t.index = range(1, len(display_t) + 1)
+    st.dataframe(display_t, use_container_width=True)
 
     with st.expander("➕ Ajouter un traitement", expanded=False):
         with st.form("form_add_traitement_simple", clear_on_submit=True):
@@ -1083,11 +1035,12 @@ def render_traitements():
         st.info("Aucun traitement pour ce patient.")
         return
 
-    tid = st.session_state.get("current_traitement_id")
-    if tid is None:
-        st.caption("Aucun traitement sélectionné.")
-        return
-
+    t_opts = {
+        f"{r['diagnostic']} - {r['date_debut']}": int(r["id"])
+        for _, r in t_df.iterrows()
+    }
+    t_label = st.selectbox("Choisir un traitement", list(t_opts.keys()))
+    tid = t_opts[t_label]
     tr = t_df[t_df["id"] == tid].iloc[0]
     st.caption(
         f"Traitement sélectionné : {tr['diagnostic']} - {tr['date_debut']}"
@@ -1135,32 +1088,8 @@ def render_seances():
     s_df = list_seances(traitement_id=tid)
     display_s = s_df[["date", "heure", "duree_minutes", "cout", "effectuee", "payee", "notes"]].copy()
     display_s = display_s.rename(columns={"notes": "Note"})
-
-    def _seance_highlight(row: pd.Series) -> list[str]:
-        sid = st.session_state.get("current_seance_id")
-        if sid is None:
-            return [""] * len(row)
-        idx = s_df.index[s_df["id"] == sid]
-        if not idx.empty and row.name == idx[0]:
-            return ["background-color: #fff3cd"] * len(row)
-        return [""] * len(row)
-
-    styled_s = display_s.style.apply(_seance_highlight, axis=1)
-    st.data_editor(
-        styled_s,
-        hide_index=True,
-        use_container_width=True,
-        on_select="index",
-        key="seances_table",
-    )
-
-    sel = (
-        st.session_state.get("seances_table", {})
-        .get("selection", {})
-        .get("rows", [])
-    )
-    if sel:
-        st.session_state["current_seance_id"] = int(s_df.iloc[sel[0]]["id"])
+    display_s.index = range(1, len(display_s) + 1)
+    st.dataframe(display_s, use_container_width=True)
 
     with st.expander("➕ Planifier une séance", expanded=False):
         with st.form("form_add_seance_simple", clear_on_submit=True):
@@ -1189,11 +1118,12 @@ def render_seances():
         st.info("Aucune séance pour ce traitement.")
         return
 
-    sid = st.session_state.get("current_seance_id")
-    if sid is None:
-        st.caption("Aucune séance sélectionnée.")
-        return
-
+    s_opts = {
+        f"{r['date']} {r['heure'] or ''}": int(r["id"])
+        for _, r in s_df.iterrows()
+    }
+    s_label = st.selectbox("Choisir une séance", list(s_opts.keys()))
+    sid = s_opts[s_label]
     row = s_df[s_df["id"] == sid].iloc[0]
     st.caption(
         f"Séance sélectionnée : {row['date']} {row['heure'] or ''}"
@@ -1242,7 +1172,6 @@ def view_manager():
         st.session_state["level"] = "dashboard"
         st.session_state["current_patient_id"] = None
         st.session_state["current_traitement_id"] = None
-        st.session_state["current_seance_id"] = None
     level = st.session_state.get("level", "dashboard")
     if level == "dashboard":
         render_dashboard()
