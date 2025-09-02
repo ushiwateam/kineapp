@@ -935,107 +935,175 @@ def render_patients():
     st.subheader("👤 Patients")
     if st.button("🏠 Tableau de bord"):
         _go_to("dashboard")
-    search = st.text_input("Recherche (nom, prénom, téléphone)")
+
+    # Initialise session state for modals
+    if "show_add_patient" not in st.session_state:
+        st.session_state["show_add_patient"] = False
+    if "edit_patient_id" not in st.session_state:
+        st.session_state["edit_patient_id"] = None
+    if "delete_patient_id" not in st.session_state:
+        st.session_state["delete_patient_id"] = None
+
+    top_left, top_right = st.columns([3, 1])
+    with top_left:
+        search = st.text_input("Recherche (nom, prénom, téléphone, CIN)")
+    with top_right:
+        if st.button("➕ Ajouter un patient"):
+            st.session_state["show_add_patient"] = True
+
     df = list_patients(search)
-    display_df = df[["nom", "prenom", "telephone", "email"]].copy()
-    display_df.index = range(1, len(display_df) + 1)
 
-    # Use row selection instead of a separate dropdown
-    df_state = st.dataframe(
-        display_df,
-        use_container_width=True,
-        key="patients_table",
-        on_select="rerun",
-        selection_mode="single-row",
-    )
-
-    # Update the current patient in session state when a row is clicked
-    if df_state.selection.rows:
-        st.session_state["current_patient_id"] = int(
-            df.iloc[df_state.selection.rows[0]]["id"]
-        )
+    if df.empty:
+        st.info("Aucun patient trouvé.")
     else:
-        st.session_state["current_patient_id"] = None
+        headers = [
+            "Nom",
+            "Prénom",
+            "CIN",
+            "Téléphone",
+            "Email",
+            "Date de naissance",
+            "Adresse",
+            "Notes",
+            "Actions",
+        ]
+        widths = [2, 2, 1, 2, 2, 2, 3, 3, 1]
+        header_cols = st.columns(widths)
+        for col, label in zip(header_cols, headers):
+            col.markdown(f"**{label}**")
 
-    with st.expander("➕ Ajouter un patient", expanded=False):
-        with st.form("form_add_patient_simple", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            with c1:
-                nom = st.text_input("Nom *")
-                prenom = st.text_input("Prénom")
-                cin = st.text_input("CIN")
-                telephone = st.text_input("Téléphone")
-                email = st.text_input("Email")
-            with c2:
-                dtn = st.date_input("Date de naissance", min_value=date(1900, 1, 1), format="DD/MM/YYYY")
-                adresse = st.text_area("Adresse")
-                notes = st.text_area("Notes")
-            if st.form_submit_button("Enregistrer"):
+        for _, row in df.iterrows():
+            cols = st.columns(widths)
+            cols[0].write(row["nom"])
+            cols[1].write(row["prenom"])
+            cols[2].write(row["cin"])
+            cols[3].write(row["telephone"])
+            cols[4].write(row["email"])
+            dob = (
+                datetime.strptime(row["date_naissance"], DATE_FMT_DB).strftime(DATE_FMT_UI)
+                if row["date_naissance"]
+                else ""
+            )
+            cols[5].write(dob)
+            cols[6].write(row["adresse"])
+            cols[7].write(row["notes"])
+            with cols[8]:
+                e_col, d_col = st.columns(2)
+                if e_col.button("✏️", key=f"edit_{row['id']}", help="Modifier"):
+                    st.session_state["edit_patient_id"] = int(row["id"])
+                if d_col.button("🗑️", key=f"delete_{row['id']}", help="Supprimer"):
+                    st.session_state["delete_patient_id"] = int(row["id"])
+
+    # Modal: Add patient
+    if st.session_state.get("show_add_patient"):
+        with st.modal("Ajouter un patient", key="modal_add_patient"):
+            with st.form("form_add_patient"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    nom = st.text_input("Nom *")
+                    prenom = st.text_input("Prénom")
+                    cin = st.text_input("CIN")
+                    telephone = st.text_input("Téléphone")
+                    email = st.text_input("Email")
+                with c2:
+                    dtn = st.date_input(
+                        "Date de naissance",
+                        min_value=date(1900, 1, 1),
+                        format="DD/MM/YYYY",
+                    )
+                    adresse = st.text_area("Adresse")
+                    notes = st.text_area("Notes")
+                c3, c4 = st.columns(2)
+                cancel = c3.form_submit_button("Annuler")
+                save = c4.form_submit_button("Confirmer")
+            if cancel:
+                st.session_state["show_add_patient"] = False
+            if save:
                 if not nom.strip():
                     st.error("Le nom est obligatoire.")
                 else:
                     run_exec(
                         "INSERT INTO patients (nom, prenom, cin, date_naissance, telephone, email, adresse, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (nom.strip(), prenom.strip(), cin.strip(), to_db_date(dtn), telephone.strip(), email.strip(), adresse.strip(), notes.strip()),
+                        (
+                            nom.strip(),
+                            prenom.strip(),
+                            cin.strip(),
+                            to_db_date(dtn),
+                            telephone.strip(),
+                            email.strip(),
+                            adresse.strip(),
+                            notes.strip(),
+                        ),
                     )
                     clear_caches()
+                    st.session_state["show_add_patient"] = False
                     st.success("Patient ajouté avec succès.")
                     st_rerun()
 
-    if df.empty:
-        st.info("Aucun patient trouvé.")
+    # Modal: Edit patient
+    if st.session_state.get("edit_patient_id") is not None:
+        pid = st.session_state["edit_patient_id"]
+        row = df[df["id"] == pid].iloc[0]
+        with st.modal("Modifier le patient", key="modal_edit_patient"):
+            with st.form("form_edit_patient"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    nom = st.text_input("Nom *", row["nom"])
+                    prenom = st.text_input("Prénom", row["prenom"] or "")
+                    cin = st.text_input("CIN", row["cin"] or "")
+                    telephone = st.text_input("Téléphone", row["telephone"] or "")
+                    email = st.text_input("Email", row["email"] or "")
+                with c2:
+                    dtn = st.date_input(
+                        "Date de naissance",
+                        value=to_ui_date(row["date_naissance"]) or date(1990, 1, 1),
+                        min_value=date(1900, 1, 1),
+                        format="DD/MM/YYYY",
+                    )
+                    adresse = st.text_area("Adresse", row["adresse"] or "")
+                    notes = st.text_area("Notes", row["notes"] or "")
+                c3, c4 = st.columns(2)
+                cancel = c3.form_submit_button("Annuler")
+                save = c4.form_submit_button("Mettre à jour")
+            if cancel:
+                st.session_state["edit_patient_id"] = None
+            if save:
+                if not nom.strip():
+                    st.error("Le nom est obligatoire.")
+                else:
+                    run_exec(
+                        "UPDATE patients SET nom=?, prenom=?, cin=?, date_naissance=?, telephone=?, email=?, adresse=?, notes=? WHERE id=?",
+                        (
+                            nom.strip(),
+                            prenom.strip(),
+                            cin.strip(),
+                            to_db_date(dtn),
+                            telephone.strip(),
+                            email.strip(),
+                            adresse.strip(),
+                            notes.strip(),
+                            pid,
+                        ),
+                    )
+                    clear_caches()
+                    st.session_state["edit_patient_id"] = None
+                    st.success("Patient mis à jour.")
+                    st_rerun()
 
-    pid = st.session_state.get("current_patient_id")
-    row = df[df["id"] == pid].iloc[0] if pid is not None and not df.empty and not df[df["id"] == pid].empty else None
-
-    with st.container(border=True):
-        st.caption(
-            f"Patient sélectionné : {row['nom']} {row['prenom']} - {row['telephone']} - {row['cin']}"
-            if row is not None
-            else "Patient sélectionné : Aucun",
-        )
-
-        with st.expander("✏️ Modifier / Supprimer", expanded=False):
-            if row is None:
-                st.info("Sélectionnez un patient pour modifier ou supprimer.")
-            else:
-                with st.form("form_edit_patient_simple"):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        nom = st.text_input("Nom *", row["nom"])
-                        prenom = st.text_input("Prénom", row["prenom"] or "")
-                        cin = st.text_input("CIN", row["cin"] or "")
-                        telephone = st.text_input("Téléphone", row["telephone"] or "")
-                        email = st.text_input("Email", row["email"] or "")
-                    with c2:
-                        dtn = st.date_input(
-                            "Date de naissance",
-                            value=to_ui_date(row["date_naissance"]) or date(1990, 1, 1),
-                            min_value=date(1900, 1, 1),
-                            format="DD/MM/YYYY",
-                        )
-                        adresse = st.text_area("Adresse", row["adresse"] or "")
-                        notes = st.text_area("Notes", row["notes"] or "")
-                    c3, c4 = st.columns(2)
-                    if c3.form_submit_button("💾 Mettre à jour"):
-                        if not nom.strip():
-                            st.error("Le nom est obligatoire.")
-                        else:
-                            run_exec(
-                                "UPDATE patients SET nom=?, prenom=?, cin=?, date_naissance=?, telephone=?, email=?, adresse=?, notes=? WHERE id=?",
-                                (nom.strip(), prenom.strip(), cin.strip(), to_db_date(dtn), telephone.strip(), email.strip(), adresse.strip(), notes.strip(), pid),
-                            )
-                            clear_caches()
-                            st.success("Patient mis à jour.")
-                            st_rerun()
-                    if c4.form_submit_button("🗑️ Supprimer", help="Supprime également les traitements et séances associés"):
-                        run_exec("DELETE FROM patients WHERE id=?", (pid,))
-                        clear_caches()
-                        st.success("Patient supprimé.")
-                        st_rerun()
-
-        if st.button("📋 Ouvrir les traitements du patient", disabled=row is None):
-            _go_to("traitements", patient_id=pid)
+    # Modal: Delete patient
+    if st.session_state.get("delete_patient_id") is not None:
+        pid = st.session_state["delete_patient_id"]
+        with st.modal("Supprimer le patient", key="modal_delete_patient"):
+            st.warning("Cette action est irréversible. Confirmer la suppression ?")
+            c1, c2 = st.columns(2)
+            if c1.button("Annuler"):
+                st.session_state["delete_patient_id"] = None
+            if c2.button("Supprimer"):
+                run_exec("DELETE FROM patients WHERE id=?", (pid,))
+                clear_caches()
+                st.session_state["delete_patient_id"] = None
+                st.success("Patient supprimé.")
+                st_rerun()
 
 
 def render_traitements():
