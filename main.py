@@ -1170,7 +1170,7 @@ def render_seances():
     with st.expander("➕ Planifier une séance", expanded=False):
         with st.form("form_add_seance_simple", clear_on_submit=True):
             d = st.date_input("Date *", format="DD/MM/YYYY")
-            h = st.time_input("Heure", value=time(10, 0), step=timedelta(minutes=5))
+            h = st.time_input("Heure", value=time(10, 0), step=timedelta(minutes=15))
             duree = st.number_input("Durée (minutes)", min_value=15, max_value=240, value=45)
             cout = st.number_input("Coût (MAD)", min_value=0.0, step=10.0, value=float(tr["tarif_par_seance"]))
             notes = st.text_area("Note")
@@ -1214,7 +1214,7 @@ def render_seances():
                     h = st.time_input(
                         "Heure",
                         to_ui_time(row["heure"]) or time(10, 0),
-                        step=timedelta(minutes=5),
+                        step=timedelta(minutes=15),
                     )
                     duree = st.number_input("Durée (minutes)", 15, 240, int(row["duree_minutes"]))
                     cout = st.number_input(
