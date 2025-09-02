@@ -60,6 +60,8 @@ header, .stDeployButton { visibility: hidden; height: 0; }
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
+HIGHLIGHT_COLOR = "#fff3cd"  # highlight color for selected rows
+
 # ==========================
 # Helpers
 # ==========================
@@ -438,7 +440,7 @@ def render_patients():
             return [""] * len(row)
         idx = df.index[df["id"] == pid]
         if not idx.empty and row.name == idx[0]:
-            return ["background-color: #fff3cd"] * len(row)
+            return [f"background-color: {HIGHLIGHT_COLOR}"] * len(row)
         return [""] * len(row)
 
     styled_df = display_df.style.apply(_patient_highlight, axis=1)
@@ -555,7 +557,7 @@ def render_traitements():
             return [""] * len(row)
         idx = t_df.index[t_df["id"] == tid]
         if not idx.empty and row.name == idx[0]:
-            return ["background-color: #fff3cd"] * len(row)
+            return [f"background-color: {HIGHLIGHT_COLOR}"] * len(row)
         return [""] * len(row)
 
     styled_t = display_t.style.apply(_traitement_highlight, axis=1)
@@ -654,7 +656,7 @@ def render_seances():
             return [""] * len(row)
         idx = s_df.index[s_df["id"] == sid]
         if not idx.empty and row.name == idx[0]:
-            return ["background-color: #fff3cd"] * len(row)
+            return [f"background-color: {HIGHLIGHT_COLOR}"] * len(row)
         return [""] * len(row)
 
     styled_s = display_s.style.apply(_seance_highlight, axis=1)
