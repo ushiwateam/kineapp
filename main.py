@@ -590,16 +590,20 @@ def view_patients():
             d = st.date_input("Date *", format="DD/MM/YYYY")
             duree = st.number_input("Durée (minutes)", min_value=15, max_value=240, value=45)
             douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, 5)
+            effectuee = st.checkbox("Effectuée")
+            payee = st.checkbox("Payée")
             notes = st.text_area("Notes")
             submitted = st.form_submit_button("Enregistrer")
             if submitted:
                 run_exec(
-                    "INSERT INTO seances (traitement_id, date, duree_minutes, douleur_avant, notes) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO seances (traitement_id, date, duree_minutes, douleur_avant, effectuee, payee, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         tid,
                         to_db_date(d),
                         int(duree),
                         int(douleur_avant),
+                        int(effectuee),
+                        int(payee),
                         notes.strip(),
                     ),
                 )
@@ -792,16 +796,20 @@ def view_seances():
             d = st.date_input("Date *", format="DD/MM/YYYY")
             duree = st.number_input("Durée (minutes)", min_value=15, max_value=240, value=45)
             douleur_avant = st.slider("Douleur avant (0-10)", 0, 10, 5)
+            effectuee = st.checkbox("Effectuée")
+            payee = st.checkbox("Payée")
             notes = st.text_area("Notes")
             submitted = st.form_submit_button("Enregistrer")
             if submitted:
                 run_exec(
-                    "INSERT INTO seances (traitement_id, date, duree_minutes, douleur_avant, notes) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO seances (traitement_id, date, duree_minutes, douleur_avant, effectuee, payee, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         tmap[label],
                         to_db_date(d),
                         int(duree),
                         int(douleur_avant),
+                        int(effectuee),
+                        int(payee),
                         notes.strip(),
                     ),
                 )
@@ -1173,16 +1181,20 @@ def render_seances():
             h = st.time_input("Heure", value=time(10, 0), step=timedelta(minutes=15))
             duree = st.number_input("Durée (minutes)", min_value=15, max_value=240, value=45)
             cout = st.number_input("Coût (MAD)", min_value=0.0, step=10.0, value=float(tr["tarif_par_seance"]))
+            effectuee = st.checkbox("Effectuée")
+            payee = st.checkbox("Payée")
             notes = st.text_area("Note")
             if st.form_submit_button("Enregistrer"):
                 run_exec(
-                    "INSERT INTO seances (traitement_id, date, heure, duree_minutes, cout, notes) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO seances (traitement_id, date, heure, duree_minutes, cout, effectuee, payee, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         tid,
                         to_db_date(d),
                         to_db_time(h),
                         int(duree),
                         float(cout),
+                        int(effectuee),
+                        int(payee),
                         notes.strip(),
                     ),
                 )
