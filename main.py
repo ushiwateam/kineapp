@@ -612,8 +612,22 @@ def view_patients():
         return
 
     s_df = s_df.sort_values("date")
+    table = s_df[
+        [
+            "id",
+            "date",
+            "duree_minutes",
+            "effectuee",
+            "payee",
+            "douleur_avant",
+            "douleur_apres",
+            "notes",
+        ]
+    ].copy()
+    table["Effectuée"] = table.pop("effectuee").astype(bool)
+    table["Payée"] = table.pop("payee").astype(bool)
     st.dataframe(
-        s_df[["id", "date", "duree_minutes", "effectuee", "payee", "douleur_avant", "douleur_apres", "notes"]],
+        table,
         use_container_width=True,
         hide_index=True,
     )
@@ -1123,8 +1137,20 @@ def render_seances():
         _go_to("traitements", patient_id=pid)
 
     s_df = list_seances(traitement_id=tid)
-    display_s = s_df[["date", "heure", "duree_minutes", "cout", "effectuee", "payee", "notes"]].copy()
-    display_s = display_s.rename(columns={"notes": "Note"})
+    display_s = s_df[
+        ["date", "heure", "duree_minutes", "cout", "effectuee", "payee", "notes"]
+    ].copy()
+    display_s["Effectuée"] = display_s.pop("effectuee").astype(bool)
+    display_s["Payée"] = display_s.pop("payee").astype(bool)
+    display_s = display_s.rename(
+        columns={
+            "date": "Date",
+            "heure": "Heure",
+            "duree_minutes": "Durée (min)",
+            "cout": "Coût (MAD)",
+            "notes": "Note",
+        }
+    )
     display_s.index = range(1, len(display_s) + 1)
     df_state = st.dataframe(
         display_s,
@@ -1144,7 +1170,7 @@ def render_seances():
     with st.expander("➕ Planifier une séance", expanded=False):
         with st.form("form_add_seance_simple", clear_on_submit=True):
             d = st.date_input("Date *", format="DD/MM/YYYY")
-            h = st.time_input("Heure", value=time(10, 0))
+            h = st.time_input("Heure", value=time(10, 0), step=timedelta(minutes=5))
             duree = st.number_input("Durée (minutes)", min_value=15, max_value=240, value=45)
             cout = st.number_input("Coût (MAD)", min_value=0.0, step=10.0, value=float(tr["tarif_par_seance"]))
             notes = st.text_area("Note")
@@ -1185,7 +1211,11 @@ def render_seances():
             else:
                 with st.form("form_edit_seance_simple"):
                     d = st.date_input("Date", to_ui_date(row["date"]) or date.today(), format="DD/MM/YYYY")
-                    h = st.time_input("Heure", to_ui_time(row["heure"]) or time(10, 0))
+                    h = st.time_input(
+                        "Heure",
+                        to_ui_time(row["heure"]) or time(10, 0),
+                        step=timedelta(minutes=5),
+                    )
                     duree = st.number_input("Durée (minutes)", 15, 240, int(row["duree_minutes"]))
                     cout = st.number_input(
                         "Coût (MAD)",
