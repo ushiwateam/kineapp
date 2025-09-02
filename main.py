@@ -1030,7 +1030,20 @@ def render_traitements():
     t_df = list_traitements(patient_id=pid)
     display_t = t_df[["diagnostic", "type_prise_en_charge", "date_debut", "statut"]].copy()
     display_t.index = range(1, len(display_t) + 1)
-    st.dataframe(display_t, use_container_width=True)
+    df_state = st.dataframe(
+        display_t,
+        use_container_width=True,
+        key="traitements_table",
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+
+    if df_state.selection.rows:
+        st.session_state["current_traitement_id"] = int(
+            t_df.iloc[df_state.selection.rows[0]]["id"]
+        )
+    else:
+        st.session_state["current_traitement_id"] = None
 
     with st.expander("➕ Ajouter un traitement", expanded=False):
         with st.form("form_add_traitement_simple", clear_on_submit=True):
@@ -1051,44 +1064,50 @@ def render_traitements():
 
     if t_df.empty:
         st.info("Aucun traitement pour ce patient.")
-        return
 
-    t_opts = {
-        f"{r['diagnostic']} - {r['date_debut']}": int(r["id"])
-        for _, r in t_df.iterrows()
-    }
-    t_label = st.selectbox("Choisir un traitement", list(t_opts.keys()))
-    tid = t_opts[t_label]
-    tr = t_df[t_df["id"] == tid].iloc[0]
-    st.caption(
-        f"Traitement sélectionné : {tr['diagnostic']} - {tr['date_debut']}"
+    tid = st.session_state.get("current_traitement_id")
+    row = (
+        t_df[t_df["id"] == tid].iloc[0]
+        if tid is not None and not t_df.empty and not t_df[t_df["id"] == tid].empty
+        else None
     )
-    with st.expander("✏️ Modifier / Supprimer", expanded=False):
-        with st.form("form_edit_traitement_simple"):
-            diagnostic = st.text_input("Diagnostic / Motif", tr["diagnostic"] or "")
-            tpec = st.text_input("Type de prise en charge", tr["type_prise_en_charge"] or "")
-            date_debut = st.date_input("Date de début", to_ui_date(tr["date_debut"]) or date.today(), format="DD/MM/YYYY")
-            nb_prev = st.number_input("Nombre de séances prévues", 1, 100, int(tr["nb_seances_prevues"]))
-            tarif = st.number_input("Tarif par séance (MAD)", min_value=0.0, step=10.0, value=float(tr["tarif_par_seance"]))
-            notes = st.text_area("Notes", tr["notes"] or "")
-            statut = st.selectbox("Statut", ["En cours", "Terminé", "Archivé"], index=["En cours", "Terminé", "Archivé"].index(tr["statut"]))
-            c1, c2 = st.columns(2)
-            if c1.form_submit_button("💾 Mettre à jour"):
-                run_exec(
-                    "UPDATE traitements SET diagnostic=?, type_prise_en_charge=?, date_debut=?, nb_seances_prevues=?, tarif_par_seance=?, notes=?, statut=? WHERE id=?",
-                    (diagnostic.strip(), tpec.strip(), to_db_date(date_debut), int(nb_prev), float(tarif), notes.strip(), statut, tid),
-                )
-                clear_caches()
-                st.success("Traitement mis à jour.")
-                st_rerun()
-            if c2.form_submit_button("🗑️ Supprimer", help="Supprime les séances associées"):
-                run_exec("DELETE FROM traitements WHERE id=?", (tid,))
-                clear_caches()
-                st.success("Traitement supprimé.")
-                st_rerun()
 
-    if st.button("🗓️ Ouvrir les séances du traitement"):
-        _go_to("seances", patient_id=pid, traitement_id=tid)
+    with st.container(border=True):
+        st.caption(
+            f"Traitement sélectionné : {row['diagnostic']} - {row['date_debut']}"
+            if row is not None
+            else "Traitement sélectionné : Aucun"
+        )
+
+        with st.expander("✏️ Modifier / Supprimer", expanded=False):
+            if row is None:
+                st.info("Sélectionnez un traitement pour modifier ou supprimer.")
+            else:
+                with st.form("form_edit_traitement_simple"):
+                    diagnostic = st.text_input("Diagnostic / Motif", row["diagnostic"] or "")
+                    tpec = st.text_input("Type de prise en charge", row["type_prise_en_charge"] or "")
+                    date_debut = st.date_input("Date de début", to_ui_date(row["date_debut"]) or date.today(), format="DD/MM/YYYY")
+                    nb_prev = st.number_input("Nombre de séances prévues", 1, 100, int(row["nb_seances_prevues"]))
+                    tarif = st.number_input("Tarif par séance (MAD)", min_value=0.0, step=10.0, value=float(row["tarif_par_seance"]))
+                    notes = st.text_area("Notes", row["notes"] or "")
+                    statut = st.selectbox("Statut", ["En cours", "Terminé", "Archivé"], index=["En cours", "Terminé", "Archivé"].index(row["statut"]))
+                    c1, c2 = st.columns(2)
+                    if c1.form_submit_button("💾 Mettre à jour"):
+                        run_exec(
+                            "UPDATE traitements SET diagnostic=?, type_prise_en_charge=?, date_debut=?, nb_seances_prevues=?, tarif_par_seance=?, notes=?, statut=? WHERE id=?",
+                            (diagnostic.strip(), tpec.strip(), to_db_date(date_debut), int(nb_prev), float(tarif), notes.strip(), statut, tid),
+                        )
+                        clear_caches()
+                        st.success("Traitement mis à jour.")
+                        st_rerun()
+                    if c2.form_submit_button("🗑️ Supprimer", help="Supprime les séances associées"):
+                        run_exec("DELETE FROM traitements WHERE id=?", (tid,))
+                        clear_caches()
+                        st.success("Traitement supprimé.")
+                        st_rerun()
+
+        if st.button("🗓️ Ouvrir les séances du traitement", disabled=row is None):
+            _go_to("seances", patient_id=pid, traitement_id=tid)
 
 
 def render_seances():
@@ -1107,7 +1126,20 @@ def render_seances():
     display_s = s_df[["date", "heure", "duree_minutes", "cout", "effectuee", "payee", "notes"]].copy()
     display_s = display_s.rename(columns={"notes": "Note"})
     display_s.index = range(1, len(display_s) + 1)
-    st.dataframe(display_s, use_container_width=True)
+    df_state = st.dataframe(
+        display_s,
+        use_container_width=True,
+        key="seances_table",
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+
+    if df_state.selection.rows:
+        st.session_state["current_seance_id"] = int(
+            s_df.iloc[df_state.selection.rows[0]]["id"]
+        )
+    else:
+        st.session_state["current_seance_id"] = None
 
     with st.expander("➕ Planifier une séance", expanded=False):
         with st.form("form_add_seance_simple", clear_on_submit=True):
@@ -1134,55 +1166,59 @@ def render_seances():
 
     if s_df.empty:
         st.info("Aucune séance pour ce traitement.")
-        return
 
-    s_opts = {
-        f"{r['date']} {r['heure'] or ''}": int(r["id"])
-        for _, r in s_df.iterrows()
-    }
-    s_label = st.selectbox("Choisir une séance", list(s_opts.keys()))
-    sid = s_opts[s_label]
-    row = s_df[s_df["id"] == sid].iloc[0]
-    st.caption(
-        f"Séance sélectionnée : {row['date']} {row['heure'] or ''}"
+    sid = st.session_state.get("current_seance_id")
+    row = (
+        s_df[s_df["id"] == sid].iloc[0]
+        if sid is not None and not s_df.empty and not s_df[s_df["id"] == sid].empty
+        else None
     )
-    with st.expander("✏️ Modifier / Supprimer", expanded=False):
-        with st.form("form_edit_seance_simple"):
-            d = st.date_input("Date", to_ui_date(row["date"]) or date.today(), format="DD/MM/YYYY")
-            h = st.time_input("Heure", to_ui_time(row["heure"]) or time(10, 0))
-            duree = st.number_input("Durée (minutes)", 15, 240, int(row["duree_minutes"]))
-            cout = st.number_input(
-                "Coût (MAD)",
-                min_value=0.0,
-                step=10.0,
-                value=float(row["cout"]) if row["cout"] is not None else float(tr["tarif_par_seance"]),
-            )
-            effectuee = st.checkbox("Effectuée", value=bool(row["effectuee"]))
-            payee = st.checkbox("Payée", value=bool(row["payee"]))
-            notes = st.text_area("Note", row["notes"] or "")
-            c1, c2 = st.columns(2)
-            if c1.form_submit_button("💾 Mettre à jour"):
-                run_exec(
-                    "UPDATE seances SET date=?, heure=?, duree_minutes=?, cout=?, effectuee=?, payee=?, notes=? WHERE id=?",
-                    (
-                        to_db_date(d),
-                        to_db_time(h),
-                        int(duree),
-                        float(cout),
-                        int(effectuee),
-                        int(payee),
-                        notes.strip(),
-                        sid,
-                    ),
-                )
-                clear_caches()
-                st.success("Séance mise à jour.")
-                st_rerun()
-            if c2.form_submit_button("🗑️ Supprimer"):
-                run_exec("DELETE FROM seances WHERE id=?", (sid,))
-                clear_caches()
-                st.success("Séance supprimée.")
-                st_rerun()
+    with st.container(border=True):
+        st.caption(
+            f"Séance sélectionnée : {row['date']} {row['heure'] or ''}"
+            if row is not None
+            else "Séance sélectionnée : Aucune"
+        )
+        with st.expander("✏️ Modifier / Supprimer", expanded=False):
+            if row is None:
+                st.info("Sélectionnez une séance pour modifier ou supprimer.")
+            else:
+                with st.form("form_edit_seance_simple"):
+                    d = st.date_input("Date", to_ui_date(row["date"]) or date.today(), format="DD/MM/YYYY")
+                    h = st.time_input("Heure", to_ui_time(row["heure"]) or time(10, 0))
+                    duree = st.number_input("Durée (minutes)", 15, 240, int(row["duree_minutes"]))
+                    cout = st.number_input(
+                        "Coût (MAD)",
+                        min_value=0.0,
+                        step=10.0,
+                        value=float(row["cout"]) if row["cout"] is not None else float(tr["tarif_par_seance"]),
+                    )
+                    effectuee = st.checkbox("Effectuée", value=bool(row["effectuee"]))
+                    payee = st.checkbox("Payée", value=bool(row["payee"]))
+                    notes = st.text_area("Note", row["notes"] or "")
+                    c1, c2 = st.columns(2)
+                    if c1.form_submit_button("💾 Mettre à jour"):
+                        run_exec(
+                            "UPDATE seances SET date=?, heure=?, duree_minutes=?, cout=?, effectuee=?, payee=?, notes=? WHERE id=?",
+                            (
+                                to_db_date(d),
+                                to_db_time(h),
+                                int(duree),
+                                float(cout),
+                                int(effectuee),
+                                int(payee),
+                                notes.strip(),
+                                sid,
+                            ),
+                        )
+                        clear_caches()
+                        st.success("Séance mise à jour.")
+                        st_rerun()
+                    if c2.form_submit_button("🗑️ Supprimer"):
+                        run_exec("DELETE FROM seances WHERE id=?", (sid,))
+                        clear_caches()
+                        st.success("Séance supprimée.")
+                        st_rerun()
 
 
 def view_manager():
@@ -1190,6 +1226,7 @@ def view_manager():
         st.session_state["level"] = "dashboard"
         st.session_state["current_patient_id"] = None
         st.session_state["current_traitement_id"] = None
+        st.session_state["current_seance_id"] = None
     level = st.session_state.get("level", "dashboard")
     if level == "dashboard":
         render_dashboard()
