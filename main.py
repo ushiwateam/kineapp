@@ -937,7 +937,34 @@ def render_patients():
         _go_to("dashboard")
     search = st.text_input("Recherche (nom, prénom, téléphone)")
     df = list_patients(search)
-    display_df = df[["nom", "prenom", "telephone", "email"]].copy()
+    display_df = df[
+        [
+            "nom",
+            "prenom",
+            "cin",
+            "telephone",
+            "email",
+            "date_naissance",
+            "adresse",
+            "notes",
+        ]
+    ].copy()
+    display_df["date_naissance"] = display_df["date_naissance"].apply(
+        lambda d: datetime.strptime(d, DATE_FMT_DB).strftime(DATE_FMT_UI) if d else ""
+    )
+    display_df["Actions"] = "✏️ 🗑️"
+    display_df = display_df.rename(
+        columns={
+            "nom": "Nom",
+            "prenom": "Prénom",
+            "cin": "CIN",
+            "telephone": "Téléphone",
+            "email": "Email",
+            "date_naissance": "Date de naissance",
+            "adresse": "Adresse",
+            "notes": "Notes",
+        }
+    )
     display_df.index = range(1, len(display_df) + 1)
 
     # Use row selection instead of a separate dropdown
